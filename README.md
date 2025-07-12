@@ -6,7 +6,7 @@ QualGent is a modern SaaS platform that revolutionizes mobile app testing throug
 
 **Deployed Application:** [https://qualgent.vercel.app](https://qualgent-redesigned.vercel.app/)
 
-**Demo Video:** [Watch Product Demo](https://www.youtube.com/watch?v=demo-video-link)
+**Demo Video:** [Watch Product Demo](https://www.loom.com/share/af115107adba4d43a0e062708eff51b7?sid=aa17f7e7-7e21-4960-a379-0a4dc648c4a2)
 
 ## Features
 
