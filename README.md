@@ -4,7 +4,7 @@ QualGent is a modern SaaS platform that revolutionizes mobile app testing throug
 
 ## Live Demo
 
-**Deployed Application:** [https://qualgent.vercel.app](https://qualgent.vercel.app)
+**Deployed Application:** [https://qualgent.vercel.app](https://qualgent-redesigned.vercel.app/)
 
 **Demo Video:** [Watch Product Demo](https://www.youtube.com/watch?v=demo-video-link)
 
@@ -200,13 +200,6 @@ QualGent is a modern SaaS platform that revolutionizes mobile app testing throug
 - **Authentication Middleware**: JWT token validation
 - **Error Handling**: Comprehensive error logging and responses
 
-## Security Features
-
-- **SOC 2 Type II Compliance**: Enterprise-grade security standards
-- **Encryption**: Data encrypted in transit and at rest
-- **Role-Based Access Control**: Granular permissions system
-- **Audit Logging**: Complete activity tracking
-- **Secure API**: JWT-based authentication with refresh tokens
 
 ## Performance Optimization
 
@@ -216,11 +209,7 @@ QualGent is a modern SaaS platform that revolutionizes mobile app testing throug
 - **Caching**: Strategic caching for API responses
 - **Database Indexing**: Optimized queries with proper indexing
 
-## Support and Documentation
 
-- **Email Support**: support@qualgent.com
-- **Live Chat**: Available in the application
-- **Documentation**: Comprehensive API and user documentation
 
 ## License
 
