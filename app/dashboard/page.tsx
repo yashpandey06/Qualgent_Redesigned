@@ -11,6 +11,7 @@ import { Activity, CheckCircle, Clock, Play, Plus, Smartphone, TrendingUp, Users
 import Link from "next/link"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { AiChat } from "@/components/ai-chat"
+import { logInfo, logError } from "@/lib/logger"
 
 export default function DashboardPage() {
   const { user, loading } = useAuth()
@@ -23,6 +24,7 @@ export default function DashboardPage() {
     completedRuns: 0,
     runningRuns: 0,
   })
+  const [dashboardLoading, setDashboardLoading] = useState(true)
 
   useEffect(() => {
     if (!loading && !user) {
@@ -36,24 +38,37 @@ export default function DashboardPage() {
   }, [user, loading, router])
 
   const fetchDashboardData = async () => {
+    setDashboardLoading(true)
     try {
-      // Use mock API instead of Supabase
-      const { data: projectsData } = await mockApi.getProjects()
-      if (projectsData) {
-        setProjects(projectsData)
+      // Fetch projects and stats in parallel
+      const [projectsRes, statsRes] = await Promise.all([
+        fetch("/api/dashboard/projects"),
+        fetch("/api/dashboard/stats"),
+      ])
+      const projectsResult = await projectsRes.json()
+      const statsResult = await statsRes.json()
+      logInfo("Projects API response", projectsResult)
+      logInfo("Stats API response", statsResult)
+
+      if (projectsRes.ok && projectsResult.projects) {
+        setProjects(projectsResult.projects)
+      } else {
+        logError("Failed to fetch projects", projectsResult.error)
+      }
+      if (statsRes.ok) {
+        setStats(statsResult)
+      } else {
+        logError("Failed to fetch stats", statsResult.error)
       }
 
       const { data: runsData } = await mockApi.getTestRuns()
       if (runsData) {
         setRecentRuns(runsData)
       }
-
-      const { data: statsData } = await mockApi.getStats()
-      if (statsData) {
-        setStats(statsData)
-      }
     } catch (error) {
-      console.error("Error fetching dashboard data:", error)
+      logError("Error fetching dashboard data", error)
+    } finally {
+      setDashboardLoading(false)
     }
   }
 
@@ -70,10 +85,10 @@ export default function DashboardPage() {
     }
   }
 
-  if (loading) {
+  if (loading || dashboardLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-orange-500"></div>
+        <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-orange-500"></div>
       </div>
     )
   }

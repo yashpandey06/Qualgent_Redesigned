@@ -5,59 +5,59 @@ ALTER DATABASE postgres SET "app.jwt_secret" TO 'your-jwt-secret';
 CREATE TYPE test_step_type AS ENUM ('video', 'image', 'text');
 CREATE TYPE test_run_status AS ENUM ('pending', 'running', 'completed', 'failed');
 
--- Users table (extends Supabase auth.users)
-CREATE TABLE public.profiles (
-    id UUID REFERENCES auth.users(id) PRIMARY KEY,
-    email TEXT NOT NULL,
-    full_name TEXT,
-    avatar_url TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
 -- Projects table
-CREATE TABLE public.projects (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT,
-    owner_id UUID REFERENCES public.profiles(id) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS projects (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  description text,
+  owner_id uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 -- Test Suites table
-CREATE TABLE public.test_suites (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT,
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS test_suites (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  description text,
+  project_id uuid REFERENCES projects(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 -- Test Runs table
-CREATE TABLE public.test_runs (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    name TEXT NOT NULL,
-    status test_run_status DEFAULT 'pending',
-    suite_id UUID REFERENCES public.test_suites(id) ON DELETE CASCADE NOT NULL,
-    started_at TIMESTAMP WITH TIME ZONE,
-    completed_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS test_runs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  status text CHECK (status IN ('pending', 'running', 'completed', 'failed')) NOT NULL DEFAULT 'pending',
+  suite_id uuid REFERENCES test_suites(id) ON DELETE CASCADE,
+  started_at timestamptz,
+  completed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 -- Test Steps table
-CREATE TABLE public.test_steps (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT,
-    step_type test_step_type NOT NULL,
-    media_url TEXT, -- Placeholder for video/image URLs
-    run_id UUID REFERENCES public.test_runs(id) ON DELETE CASCADE NOT NULL,
-    step_order INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS test_steps (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  description text,
+  step_type text CHECK (step_type IN ('video', 'image', 'text')) NOT NULL,
+  media_url text,
+  run_id uuid REFERENCES test_runs(id) ON DELETE CASCADE,
+  step_order integer NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Profiles table
+CREATE TABLE IF NOT EXISTS profiles (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email text NOT NULL UNIQUE,
+  full_name text,
+  avatar_url text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 -- Enable Row Level Security

@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { TestTube, Bell, User, Settings, LogOut, FileText, Play, TicketIcon as Queue, Bot } from "lucide-react"
+import { TestTube, Bell, User, Settings, LogOut, FileText, Play, TicketIcon as Queue } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useRouter } from "next/navigation"
@@ -32,7 +32,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     { name: "Run & View", href: "/dashboard/run-view", icon: Play },
     { name: "Files", href: "/dashboard/files", icon: FileText },
     { name: "Queue", href: "/dashboard/queue", icon: Queue },
-    { name: "AI Assistant", href: "/dashboard/ai-assistant", icon: Bot },
   ]
 
   const isActive = (href: string) => {
@@ -69,7 +68,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                       href={item.href}
                       className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200
                         ${active ? "bg-orange-500 text-black shadow-lg" : "text-gray-300 hover:text-white hover:bg-gray-800"}
-                        ${item.name === "AI Assistant" && !active ? "bg-gradient-to-r from-orange-500/20 to-yellow-500/20 border border-orange-500/30" : ""}
                       `}
                     >
                       <Icon className="h-4 w-4" />

@@ -9,9 +9,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
-import { Bot, User, Send, Sparkles, Copy, Plus } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Bot, User, Send, Sparkles, Copy, Plus, Loader2, CheckCircle } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-// REMOVE: import { handleUserMessage } from "@/lib/assistant";
+import { logInfo, logError } from "@/lib/logger"
+import { PRODUCT_CONTEXT } from "@/lib/gemini/prompt"
+import { askGemini } from "@/lib/gemini/gemini"
+import { useCallback } from "react"
 
 interface Message {
   id: string
@@ -22,13 +26,31 @@ interface Message {
 }
 
 interface GeneratedTestCase {
-  id: string
+  id?: string
   name: string
   description: string
   category: string
   steps: string[]
   expectedResult: string
   priority: "High" | "Medium" | "Low"
+  stored?: boolean
+}
+
+interface Project {
+  id: string
+  name: string
+  description: string
+}
+
+// Simple animated three-dot loader component
+function TypingLoader() {
+  return (
+    <div className="flex items-center space-x-2">
+      <span className="block w-2 h-2 bg-orange-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+      <span className="block w-2 h-2 bg-orange-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+      <span className="block w-2 h-2 bg-orange-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+    </div>
+  )
 }
 
 export function AiChat() {
@@ -43,11 +65,36 @@ export function AiChat() {
   ])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [selectedProject, setSelectedProject] = useState<string>("")
+  const [generatingTestCases, setGeneratingTestCases] = useState(false)
+  const [pendingType, setPendingType] = useState<null | 'thinking' | 'generating'>(null)
+  const [showTyping, setShowTyping] = useState(false)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
+  // Fetch projects on component mount
+  useEffect(() => {
+    fetchProjects()
+  }, [])
+
+  const fetchProjects = async () => {
+    try {
+      const res = await fetch("/api/dashboard/projects")
+      const result = await res.json()
+      if (res.ok && result.projects) {
+        setProjects(result.projects)
+        if (result.projects.length > 0) {
+          setSelectedProject(result.projects[0].id)
+        }
+      }
+    } catch (error) {
+      logError("Error fetching projects", error)
+    }
+  }
+
   const handleSendMessage = async () => {
-    if (!input.trim()) return
+    if (!input.trim() || !selectedProject) return
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -58,54 +105,114 @@ export function AiChat() {
 
     setMessages((prev) => [...prev, userMessage])
     setInput("")
-    setIsLoading(true)
 
-    try {
-      const res = await fetch("/api/assistant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: input }),
-      })
-      const result = await res.json()
-      if (result.type === "scroll") {
-        setTimeout(() => {
-          const section = document.getElementById(result.data)
-          if (section) {
-            section.scrollIntoView({ behavior: "smooth" })
-          }
-        }, 500)
+    const testCaseKeywords = [
+      "test case", "test scenario", "generate test", "generate case", "feature to test", "write test", "create test", "test for", "test the", "test login", "test checkout", "test registration", "test flow", "test feature", "test functionality"
+    ]
+    const isTestCaseRequest = testCaseKeywords.some(keyword => input.toLowerCase().includes(keyword)) || input.trim().length > 20
+
+    if (!isTestCaseRequest) {
+      setIsLoading(true)
+      setPendingType('thinking')
+      setShowTyping(true)
+      try {
+        const geminiPrompt = `${PRODUCT_CONTEXT}\nUser: ${input}\nAssistant:`
+        const geminiResponse = await askGemini(geminiPrompt)
         setMessages((prev) => [
           ...prev,
           {
             id: (Date.now() + 1).toString(),
             type: "ai",
-            content: `I've scrolled to the relevant section for you!`,
+            content: geminiResponse.trim() || `👋 Hello! Please describe the feature or functionality you want to generate test cases for, and I'll help you!`,
             timestamp: new Date(),
           },
         ])
+      } catch (err: any) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            type: "ai",
+            content: `Sorry, there was an error: ${err.message}`,
+            timestamp: new Date(),
+          },
+        ])
+      } finally {
+        setIsLoading(false)
+        setPendingType(null)
+        setShowTyping(false)
+      }
+      return
+    }
+
+    setIsLoading(true)
+    setGeneratingTestCases(true)
+    setPendingType('generating')
+    setShowTyping(true)
+
+    try {
+      const res = await fetch("/api/dashboard/ai-test-cases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          prompt: input,
+          project_id: selectedProject
+        }),
+      })
+      
+      const result = await res.json()
+      logInfo("AI Test Cases API response", result)
+
+      if (res.ok && result.success) {
+        const projectName = result.projectName || "your project"
+        // Debug: Log generated test cases
+        console.log('Generated test cases:', result.testCases)
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            type: "ai",
+            content:
+              result.testCases && result.testCases.length > 0
+                ? `✅ I've generated ${result.generatedCount} test cases for "${input}" and saved them to ${projectName}. Here they are:`
+                : `⚠️ No test cases could be generated for "${input}". Please try a different feature description or check your AI configuration.`,
+            timestamp: new Date(),
+            testCases: result.testCases && result.testCases.length > 0 ? result.testCases : undefined
+          },
+        ])
+
+        toast({
+          title: "Test Cases Generated!",
+          description: `${result.generatedCount} test cases have been created and saved to your project.`,
+        })
       } else {
         setMessages((prev) => [
           ...prev,
           {
             id: (Date.now() + 1).toString(),
             type: "ai",
-            content: result.data,
+            content: `Sorry, I couldn't generate test cases. ${result.error || 'Please try again.'}`,
+            testCases: undefined,
             timestamp: new Date(),
           },
         ])
       }
     } catch (err: any) {
+      logError("Error generating test cases", err)
       setMessages((prev) => [
         ...prev,
         {
           id: (Date.now() + 1).toString(),
           type: "ai",
-          content: `Sorry, there was an error: ${err.message}`,
+          content: `Sorry, there was an error generating test cases: ${err.message}`,
           timestamp: new Date(),
         },
       ])
     } finally {
       setIsLoading(false)
+      setGeneratingTestCases(false)
+      setPendingType(null)
+      setShowTyping(false)
     }
   }
 
@@ -125,11 +232,13 @@ export function AiChat() {
     })
   }
 
-  const addTestCaseToProject = (testCase: GeneratedTestCase) => {
-    toast({
-      title: "Test Case Added!",
-      description: `"${testCase.name}" has been added to your project`,
-    })
+  const viewTestCaseInProject = (testCase: GeneratedTestCase) => {
+    if (testCase.stored) {
+      toast({
+        title: "Test Case Saved!",
+        description: `"${testCase.name}" has been saved to your project. You can view it in the Test Cases section.`,
+      })
+    }
   }
 
   useEffect(() => {
@@ -139,17 +248,32 @@ export function AiChat() {
   }, [messages])
 
   return (
-    <Card className="h-full bg-gray-900/50 border-gray-800 flex flex-col">
+    <Card className="h-full bg-gray-900/50 border-gray-800 flex flex-col max-h-screen">
       <CardHeader className="pb-3">
         <CardTitle className="text-white flex items-center">
           <Bot className="mr-2 h-5 w-5 text-orange-500" />
           AI Test Case Generator
           <Sparkles className="ml-2 h-4 w-4 text-yellow-500" />
         </CardTitle>
+        <div className="flex items-center space-x-2 mt-2">
+          <span className="text-sm text-gray-400">Project:</span>
+          <Select value={selectedProject} onValueChange={setSelectedProject}>
+            <SelectTrigger className="w-48 bg-gray-800 border-gray-700 text-white">
+              <SelectValue placeholder="Select a project" />
+            </SelectTrigger>
+            <SelectContent className="bg-gray-800 border-gray-700">
+              {projects.map((project) => (
+                <SelectItem key={project.id} value={project.id}>
+                  {project.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </CardHeader>
 
-      <CardContent className="flex-1 flex flex-col p-0">
-        <ScrollArea className="flex-1 px-4" ref={scrollAreaRef}>
+      <CardContent className="flex-1 flex flex-col p-0 min-h-0">
+        <ScrollArea className="flex-1 px-4 min-h-0 max-h-[calc(100vh-220px)]" ref={scrollAreaRef}>
           <div className="space-y-4 pb-4">
             {messages.map((message) => (
               <div key={message.id} className="space-y-3">
@@ -181,8 +305,8 @@ export function AiChat() {
                 {/* Generated Test Cases */}
                 {message.testCases && message.testCases.length > 0 && (
                   <div className="ml-12 space-y-3">
-                    {message.testCases.map((testCase) => (
-                      <Card key={testCase.id} className="bg-gray-800/50 border-gray-700">
+                    {message.testCases.map((testCase, index) => (
+                      <Card key={index} className="bg-gray-800/50 border-gray-700">
                         <CardHeader className="pb-2">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-2">
@@ -199,6 +323,12 @@ export function AiChat() {
                               >
                                 {testCase.priority}
                               </Badge>
+                              {testCase.stored && (
+                                <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">
+                                  <CheckCircle className="h-3 w-3 mr-1" />
+                                  Saved
+                                </Badge>
+                              )}
                             </div>
                             <div className="flex space-x-1">
                               <Button
@@ -212,7 +342,7 @@ export function AiChat() {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                onClick={() => addTestCaseToProject(testCase)}
+                                onClick={() => viewTestCaseInProject(testCase)}
                                 className="h-6 w-6 p-0 text-gray-400 hover:text-orange-500"
                               >
                                 <Plus className="h-3 w-3" />
@@ -230,9 +360,9 @@ export function AiChat() {
                             <div>
                               <p className="text-xs font-medium text-gray-300 mb-1">Steps:</p>
                               <ol className="text-xs text-gray-400 space-y-1">
-                                {testCase.steps.map((step, index) => (
-                                  <li key={index} className="flex">
-                                    <span className="mr-2 text-orange-500">{index + 1}.</span>
+                                {testCase.steps.map((step, stepIndex) => (
+                                  <li key={stepIndex} className="flex">
+                                    <span className="mr-2 text-orange-500">{stepIndex + 1}.</span>
                                     <span>{step}</span>
                                   </li>
                                 ))}
@@ -252,30 +382,24 @@ export function AiChat() {
               </div>
             ))}
 
-            {isLoading && (
+            {/* Typing loader as a bot message */}
+            {showTyping && (
               <div className="flex items-start space-x-3">
                 <div className="bg-orange-500 p-2 rounded-full">
                   <Bot className="h-4 w-4 text-black" />
                 </div>
-                <div className="bg-gray-800 p-3 rounded-lg">
-                  <div className="flex space-x-1">
-                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
-                    <div
-                      className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
-                      style={{ animationDelay: "0.1s" }}
-                    ></div>
-                    <div
-                      className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
-                      style={{ animationDelay: "0.2s" }}
-                    ></div>
+                <div className="max-w-[80%]">
+                  <div className="p-3 rounded-lg bg-gray-800 text-gray-100">
+                    <TypingLoader />
                   </div>
+                  <p className="text-xs text-gray-500 mt-1">Assistant is typing...</p>
                 </div>
               </div>
             )}
           </div>
         </ScrollArea>
 
-        <Separator className="bg-gray-800" />
+        <Separator className="bg-gray-700" />
 
         <div className="p-4">
           <div className="flex space-x-2">
@@ -283,33 +407,25 @@ export function AiChat() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Describe the functionality you want to test (e.g., 'login flow', 'payment process', 'user registration')..."
-              className="bg-gray-800 border-gray-700 text-white focus:border-orange-500"
-              disabled={isLoading}
+              placeholder="Describe the feature you want to test (e.g., 'User login with email and password')"
+              className="flex-1 bg-gray-800 border-gray-700 text-white placeholder-gray-400 focus:border-orange-500"
+              disabled={isLoading || !selectedProject}
             />
             <Button
               onClick={handleSendMessage}
-              disabled={isLoading || !input.trim()}
+              disabled={isLoading || !input.trim() || !selectedProject}
               className="bg-orange-500 hover:bg-orange-600 text-black"
             >
-              <Send className="h-4 w-4" />
+              {isLoading ? (
+                <TypingLoader />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
             </Button>
           </div>
-
-          <div className="flex flex-wrap gap-2 mt-2">
-            {["Login flow", "Payment process", "User registration", "Navigation testing"].map((suggestion) => (
-              <Button
-                key={suggestion}
-                size="sm"
-                variant="outline"
-                onClick={() => setInput(suggestion)}
-                className="text-xs border-gray-700 text-gray-400 hover:text-white hover:bg-gray-800 bg-transparent"
-                disabled={isLoading}
-              >
-                {suggestion}
-              </Button>
-            ))}
-          </div>
+          {!selectedProject && (
+            <p className="text-xs text-red-400 mt-2">Please select a project to generate test cases</p>
+          )}
         </div>
       </CardContent>
     </Card>

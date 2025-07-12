@@ -1,5 +1,5 @@
 "use client"
-import { useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -7,7 +7,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { Plus, FolderOpen, FileText, X } from "lucide-react"
+import { Plus, FolderOpen, FileText, X, Loader2 } from "lucide-react"
+import { logInfo, logError } from "@/lib/logger"
 
 export default function TestCasesPage() {
   const [selectedCategory, setSelectedCategory] = useState("All")
@@ -16,32 +17,114 @@ export default function TestCasesPage() {
     category: "",
     name: "",
     description: "",
+    project_id: "",
   })
   const [attachedFiles, setAttachedFiles] = useState([{ name: "resume.pdf", size: "113.32 KB" }])
+  const [allTestCases, setAllTestCases] = useState<any[]>([])
+  const [testCases, setTestCases] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [sidebarLoading, setSidebarLoading] = useState(true)
 
-  const categories = [
-    { id: "all", name: "All", count: 0 },
-    { id: "hey", name: "Hey", count: 0 },
-    { id: "yyy", name: "yyy", count: 0 },
-    { id: "new", name: "new", count: 0 },
-    { id: "saket", name: "SaketTest", count: 1 },
-  ]
+  const fetchAllTestCases = async () => {
+    setSidebarLoading(true)
+    try {
+      const res = await fetch("/api/dashboard/test-cases")
+      const result = await res.json()
+      logInfo("All Test Cases API response", result)
+      if (res.ok && result.testCases) {
+        setAllTestCases(result.testCases)
+      } else {
+        logError("Failed to fetch all test cases", result.error)
+      }
+    } catch (error) {
+      logError("Error fetching all test cases", error)
+    } finally {
+      setSidebarLoading(false)
+    }
+  }
 
-  const testCases = [
-    { id: "aa", name: "aa" },
-    { id: "ronz", name: "Ronz" },
-    { id: "test-entire", name: "Test Entire Functionality" },
-  ]
+  // Fetch test cases from API, optionally filtered by category
+  const fetchTestCases = async (category = "All") => {
+    setLoading(true)
+    try {
+      const url = category && category !== "All"
+        ? `/api/dashboard/test-cases?category=${encodeURIComponent(category)}`
+        : "/api/dashboard/test-cases"
+      const res = await fetch(url)
+      const result = await res.json()
+      logInfo("Test Cases API response", result)
+      if (res.ok && result.testCases) {
+        setTestCases(result.testCases)
+      } else {
+        logError("Failed to fetch test cases", result.error)
+      }
+    } catch (error) {
+      logError("Error fetching test cases", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Compute unique categories from allTestCases (excluding 'All' and empty/null)
+  const categories = useMemo(() => {
+    const cats = Array.from(new Set(allTestCases.map(tc => tc.category).filter(Boolean)))
+    return ["All", ...cats]
+  }, [allTestCases])
+  // Hardcoded categories for the dropdown
+  const categoryOptions = ['Sanity', 'Smoke', 'Regression']
+
+  useEffect(() => {
+    fetchAllTestCases()
+  }, [])
+
+  useEffect(() => {
+    fetchTestCases(selectedCategory)
+  }, [selectedCategory])
+
+  // Default category in create form: use selectedCategory if not 'All'
+  useEffect(() => {
+    if (showCreateForm && selectedCategory !== "All") {
+      setFormData(f => ({ ...f, category: selectedCategory }))
+    }
+  }, [showCreateForm, selectedCategory])
 
   const removeFile = (fileName: string) => {
     setAttachedFiles((prev) => prev.filter((file) => file.name !== fileName))
   }
 
-  const handleCreateTest = () => {
-    // Handle test creation
-    console.log("Creating test:", formData)
-    setShowCreateForm(false)
-    setFormData({ category: "", name: "", description: "" })
+  const handleCreateTest = async () => {
+    setCreating(true)
+    try {
+      // For demo: use the first project_id if not set
+      let project_id = formData.project_id
+      if (!project_id && allTestCases.length > 0) {
+        project_id = allTestCases[0].project_id
+      }
+      const res = await fetch("/api/dashboard/test-cases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: formData.name,
+          description: formData.description,
+          project_id,
+          category: formData.category || selectedCategory !== "All" ? selectedCategory : undefined,
+        }),
+      })
+      const result = await res.json()
+      if (res.ok && result.testCase) {
+        setShowCreateForm(false)
+        setFormData({ category: "", name: "", description: "", project_id: "" })
+        fetchAllTestCases()
+        fetchTestCases(selectedCategory)
+      } else {
+        logError("Failed to create test case", result.error)
+      }
+    } catch (error) {
+      logError("Error creating test case", error)
+    } finally {
+      setCreating(false)
+    }
   }
 
   return (
@@ -51,77 +134,69 @@ export default function TestCasesPage() {
         <div className="w-64 border-r border-gray-800 p-4 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">Test Categories</h3>
-            <Button size="sm" className="bg-orange-500 hover:bg-orange-600 text-black text-xs">
-              <Plus className="mr-1 h-3 w-3" />
-              New
-            </Button>
           </div>
-
           <div className="space-y-1">
-            {categories.map((category) => (
-              <div
-                key={category.id}
-                className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors ${
-                  selectedCategory === category.name
-                    ? "bg-gray-800 text-white"
-                    : "text-gray-400 hover:text-white hover:bg-gray-800/50"
-                }`}
-                onClick={() => setSelectedCategory(category.name)}
-              >
-                <div className="flex items-center space-x-2">
-                  <FolderOpen className="h-4 w-4" />
-                  <span className="text-sm">{category.name}</span>
-                </div>
-                <Badge variant="outline" className="border-gray-600 text-gray-400 text-xs">
-                  {category.count}
-                </Badge>
+            {sidebarLoading ? (
+              <div className="flex flex-col items-center justify-center py-8">
+                <Loader2 className="animate-spin h-8 w-8 text-orange-500 mb-2" />
+                <p className="text-gray-400 text-xs">Loading categories...</p>
               </div>
-            ))}
+            ) : (
+              categories.map((category) => (
+                <div
+                  key={category}
+                  className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors ${
+                    selectedCategory === category
+                      ? "bg-gray-800 text-white"
+                      : "text-gray-400 hover:text-white hover:bg-gray-800/50"
+                  }`}
+                  onClick={() => setSelectedCategory(category)}
+                >
+                  <div className="flex items-center space-x-2">
+                    <FolderOpen className="h-4 w-4" />
+                    <span className="text-sm">{category}</span>
+                  </div>
+                  <Badge variant="outline" className="border-gray-600 text-gray-400 text-xs">
+                    {category === "All"
+                      ? allTestCases.length
+                      : allTestCases.filter(tc => tc.category === category).length}
+                  </Badge>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
         {/* Center - Test Cases List */}
-        <div className="w-80 border-r border-gray-800 p-4">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-semibold text-orange-500">Test Cases Repository</h3>
+        <div className="flex-1 p-8">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center h-full min-h-[300px]">
+              <Loader2 className="animate-spin h-12 w-12 text-orange-500 mb-4" />
+              <p className="text-gray-400">Loading test cases...</p>
             </div>
-            <p className="text-gray-400 text-sm">Manage your test cases and folders</p>
-
+          ) : testCases.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full min-h-[300px]">
+              <FolderOpen className="mx-auto h-16 w-16 text-gray-600 mb-4" />
+              <h3 className="text-lg font-medium text-gray-400 mb-2">No test cases found. Create one!</h3>
+              <Button onClick={() => setShowCreateForm(true)} className="bg-orange-500 hover:bg-orange-600 text-black">
+                <Plus className="mr-2 h-4 w-4" />
+                Create New Test Case
+              </Button>
+            </div>
+          ) : (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h4 className="text-lg font-medium text-white">All</h4>
-                <Button
-                  size="sm"
-                  className="bg-orange-500 hover:bg-orange-600 text-black"
-                  onClick={() => setShowCreateForm(true)}
+              {testCases.map((testCase) => (
+                <div
+                  key={testCase.id}
+                  className="p-4 rounded-lg bg-gray-900/50 border border-gray-800 hover:border-orange-500/50 transition-colors cursor-pointer text-gray-300 text-base shadow-sm"
                 >
-                  <Plus className="mr-1 h-3 w-3" />
-                  New
-                </Button>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-300">Test Cases</span>
-                  <div className="w-4 h-4 bg-gray-600 rounded flex items-center justify-center">
-                    <span className="text-xs text-white">▼</span>
-                  </div>
+                  <div className="font-semibold text-white mb-1">{testCase.name}</div>
+                  <div className="text-gray-400 text-sm mb-1">{testCase.description}</div>
+                  <div className="text-xs text-gray-500">Created: {new Date(testCase.created_at).toLocaleString()}</div>
                 </div>
-
-                <div className="space-y-1">
-                  {testCases.map((testCase) => (
-                    <div
-                      key={testCase.id}
-                      className="p-3 rounded-lg hover:bg-gray-800/50 cursor-pointer text-gray-300 text-sm"
-                    >
-                      {testCase.name}
-                    </div>
-                  ))}
-                </div>
-              </div>
+              ))}
             </div>
-          </div>
+          )}
         </div>
 
         {/* Right Panel - Create Form */}
@@ -225,8 +300,8 @@ export default function TestCasesPage() {
                   )}
                 </div>
 
-                <Button onClick={handleCreateTest} className="w-full bg-orange-500 hover:bg-orange-600 text-black py-3">
-                  Create Test
+                <Button onClick={handleCreateTest} className="w-full bg-orange-500 hover:bg-orange-600 text-black py-3" disabled={creating}>
+                  {creating ? "Creating..." : "Create Test"}
                 </Button>
               </div>
             </div>

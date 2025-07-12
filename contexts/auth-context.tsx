@@ -17,27 +17,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<{ id: string; email: string; name: string | null } | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // Helper to fetch profile
-  const fetchProfile = async (userId: string, email: string) => {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("full_name")
-      .eq("id", userId)
-      .single()
-    if (error || !data) {
-      return { id: userId, email, name: null }
-    }
-    return { id: userId, email, name: data.full_name }
-  }
-
   // Listen for auth state changes
   useEffect(() => {
     const getSession = async () => {
       setLoading(true)
       const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
-        const profile = await fetchProfile(session.user.id, session.user.email || "")
-        setUser(profile)
+        setUser({
+          id: session.user.id,
+          email: session.user.email || "",
+          name: null,
+        })
       } else {
         setUser(null)
       }
@@ -46,8 +36,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     getSession()
     const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
-        const profile = await fetchProfile(session.user.id, session.user.email || "")
-        setUser(profile)
+        setUser({
+          id: session.user.id,
+          email: session.user.email || "",
+          name: null,
+        })
       } else {
         setUser(null)
       }
@@ -58,7 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  // Sign in: If profile does not exist, create it
+  // Sign in
   const signIn = async (email: string, password: string) => {
     setLoading(true)
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
@@ -66,26 +59,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false)
       return { error }
     }
-    const userId = data.session.user.id
-    const userEmail = data.session.user.email || email
-    // Try to fetch profile
-    let profile = await fetchProfile(userId, userEmail)
-    if (!profile.name) {
-      // If profile does not exist, create it with id and email
-      await supabase.from("profiles").upsert({
-        id: userId,
-        email: userEmail,
-        full_name: "",
-      })
-      // Fetch again
-      profile = await fetchProfile(userId, userEmail)
-    }
-    setUser(profile)
+    setUser({
+      id: data.session.user.id,
+      email: data.session.user.email || email,
+      name: null,
+    })
     setLoading(false)
     return { error: null }
   }
 
-  // Sign up: Only insert profile if session exists (i.e., email confirmation is not required)
+  // Sign up
   const signUp = async (email: string, password: string, fullName: string) => {
     setLoading(true)
     const { data, error } = await supabase.auth.signUp({ email, password })
@@ -93,21 +76,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false)
       return { error }
     }
-    // If session exists, insert profile now
+    // If session exists, set user now
     if (data.session && data.user) {
-      const userId = data.user.id
-      const userEmail = data.user.email || email
-      const { error: profileError } = await supabase.from("profiles").upsert({
-        id: userId,
-        email: userEmail,
-        full_name: fullName,
+      setUser({
+        id: data.user.id,
+        email: data.user.email || email,
+        name: null,
       })
-      if (profileError) {
-        setLoading(false)
-        return { error: profileError }
-      }
-      const profile = await fetchProfile(userId, userEmail)
-      setUser(profile)
     } else {
       // If no session, user must confirm email before logging in
       setUser(null)
